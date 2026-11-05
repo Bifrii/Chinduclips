@@ -79,6 +79,31 @@ def process(jid):
     except Exception as e:
         j.update(status='error',error=str(e) if isinstance(e,RuntimeError) else 'Le moteur a rencontré une erreur. Vérifiez les dépendances, la mémoire disponible et le modèle de transcription.');save(j)
 
+
+THUMBNAIL_LOCK = threading.Lock()
+
+def thumbnail(jid, clip_id):
+    job = read_job(jid)
+    if not re.fullmatch(r'[0-9]{1,3}', clip_id):
+        raise ValueError('Extrait inconnu.')
+    clip = next((c for c in job.get('clips', []) if str(c['id']) == clip_id), None)
+    if clip is None or job.get('status') != 'done':
+        raise ValueError('Extrait indisponible.')
+    folder = DATA / jid
+    target = folder / ('thumb-' + clip_id + '.jpg')
+    with THUMBNAIL_LOCK:
+        if not target.exists():
+            timestamp = min(float(job['duration']) - 0.05, float(clip['start']) + min(2.0, (float(clip['end']) - float(clip['start'])) / 3))
+            temp = folder / ('thumb-' + clip_id + '-pending.jpg')
+            try:
+                run(['ffmpeg', '-y', '-ss', str(max(0, timestamp)), '-i', str(folder / 'source.mp4'), '-frames:v', '1', '-vf', 'scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2', '-q:v', '3', str(temp)], 120)
+                if not temp.is_file() or not temp.stat().st_size:
+                    raise RuntimeError('Impossible de créer la miniature.')
+                temp.replace(target)
+            finally:
+                temp.unlink(missing_ok=True)
+    return target
+
 def render(jid, options):
     j=read_job(jid);folder=DATA/jid
     start=float(options['start']);end=float(options['end'])
@@ -126,6 +151,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200,sorted(jobs,key=lambda j:j['created'],reverse=True))
             parts=path.strip('/').split('/')
             if len(parts)==3 and parts[:2]==['api','jobs']:return self.send(200,read_job(parts[2]))
+            if len(parts)==4 and parts[:2]==['api','thumbnails']:
+                try:
+                    return self.file(thumbnail(parts[2], parts[3]))
+                except (RuntimeError, subprocess.TimeoutExpired):
+                    return self.send(422, {'error':'Miniature indisponible. Vous pouvez lire la vidéo dans l’éditeur.'})
             if len(parts)==4 and parts[:2]==['api','files']:
                 read_job(parts[2]);name=parts[3]
                 if not (name=='source.mp4' or (len(name.split('.')[0])==32 and all(c in '0123456789abcdef' for c in name.split('.')[0]) and name.endswith(('.mp4','.srt')))):return self.send(400,{'error':'Fichier invalide.'})
