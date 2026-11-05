@@ -49,6 +49,16 @@ try {
         Expand-Archive -LiteralPath $zip -DestinationPath $root -Force
         Remove-Item -LiteralPath $zip -Force
     }
+    # Update engine code only. Preserve .env, video/model volumes and web assets.
+    Write-Host 'Mise a jour du moteur YouTube...'
+    $updateFiles = @('Dockerfile', 'requirements.txt', 'server.py')
+    foreach ($name in $updateFiles) {
+        $target = Join-Path $engine ($name + '.next')
+        Invoke-WebRequest -UseBasicParsing -Uri ("https://raw.githubusercontent.com/Bifrii/Chinduclips/175220cbbe15398ec7df2910acc45b3b1bd77330/engine/" + $name) -OutFile $target
+    }
+    foreach ($name in $updateFiles) {
+        Move-Item -LiteralPath (Join-Path $engine ($name + '.next')) -Destination (Join-Path $engine $name) -Force
+    }
     $envFile = Join-Path $engine '.env'
     if (-not (Test-Path -LiteralPath $envFile)) {
         $bytes = New-Object byte[] 32
