@@ -20,7 +20,38 @@ $('#importForm').onsubmit=async e=>{e.preventDefault();if(mode==='url'&&!youtube
 function remember(j){if(j.demo)return;projects=[{...j,engine:config.url},...projects.filter(p=>p.id!==j.id)].slice(0,30);localStorage.setItem('chinduProjects',JSON.stringify(projects));$('#projectCount').textContent=projects.length;}
 async function pollJob(id){clearTimeout(pollTimer);$('#progressSection').hidden=false;try{const j=await(await api('/api/jobs/'+id)).json();currentJob=j;remember(j);$('#progressLabel').textContent=j.stage;$('#progressNumber').textContent=(j.progress||0)+' %';$('#progress').value=j.progress||0;if(j.status==='done'){$('#progressSection').hidden=true;renderClips();return;}if(j.status==='error'){$('#progressSection').hidden=true;$('#emptyState').hidden=false;toast(j.error);return;}pollTimer=setTimeout(()=>pollJob(id),3000);}catch(e){$('#progressSection').hidden=true;toast(e.message+' Retrouvez le projet dans « Mes projets » pour reprendre.');}}
 $('#demoBtn').onclick=()=>{clearTimeout(pollTimer);currentJob=structuredClone(demo);$('#progressSection').hidden=true;renderClips();$('#resultsSection').scrollIntoView({behavior:'smooth',block:'start'});};
-function renderClips(){$('#emptyState').hidden=true;$('#resultsSection').hidden=false;$('#resultBadge').textContent=currentJob.demo?'DÉMONSTRATION · EXEMPLES PRÉPARÉS':'VOTRE SÉLECTION';$('#resultTitle').textContent='Les moments à retenir';$('#resultDescription').textContent=currentJob.demo?'3 exemples pour explorer l’éditeur. Ils ne proviennent pas de votre lien.':`${currentJob.clips.length} extraits proposés · ${currentJob.title}`;const clips=[...currentJob.clips].sort($('#sortClips').value==='time'?(a,b)=>a.start-b.start:(a,b)=>b.score-a.score);$('#clipsGrid').innerHTML=clips.map((c,i)=>`<article class="clip-card"><div class="clip-art color-${i%3}"><input class="clip-check" type="checkbox" data-id="${esc(c.id)}" ${c.selected===false?'':'checked'} aria-label="Sélectionner cet extrait"><span class="clip-tag">${currentJob.demo?'EXEMPLE':'EXTRAIT '+(i+1)}</span><span class="art-title">${esc(c.title)}</span><button class="clip-play" data-edit="${esc(c.id)}" aria-label="Lire l’extrait">▶</button><span class="clip-length">${Math.round(c.end-c.start)} s</span></div><div class="clip-body"><div class="clip-meta"><span>${time(c.start)} — ${time(c.end)}</span><span class="score">✦ ${c.score}/100</span></div><h3>${esc(c.title)}</h3><p>${esc(c.reason)}</p><button class="secondary" data-edit="${esc(c.id)}">Aperçu & ajustements ↗</button></div></article>`).join('');$$('[data-edit]').forEach(b=>b.onclick=()=>openEditor(b.dataset.edit));$$('.clip-check').forEach(b=>b.onchange=()=>{currentJob.clips.find(c=>c.id===b.dataset.id).selected=b.checked;if(!currentJob.demo)remember(currentJob);});}
+function renderClips(){$('#emptyState').hidden=true;$('#resultsSection').hidden=false;$('#resultBadge').textContent=currentJob.demo?'DÉMONSTRATION · EXEMPLES PRÉPARÉS':'VOTRE SÉLECTION';$('#resultTitle').textContent='Les moments à retenir';$('#resultDescription').textContent=currentJob.demo?'3 exemples pour explorer l’éditeur. Ils ne proviennent pas de votre lien.':`${currentJob.clips.length} extraits proposés · ${currentJob.title}`;const clips=[...currentJob.clips].sort($('#sortClips').value==='time'?(a,b)=>a.start-b.start:(a,b)=>b.score-a.score);$('#clipsGrid').innerHTML=clips.map((c,i)=>`<article class="clip-card"><div class="clip-art color-${i%3}">${currentJob.demo?'':`<img class="clip-thumbnail" data-thumbnail="${esc(c.id)}" alt="Image de l’extrait" hidden>`}<input class="clip-check" type="checkbox" data-id="${esc(c.id)}" ${c.selected===false?'':'checked'} aria-label="Sélectionner cet extrait"><span class="clip-tag">${currentJob.demo?'EXEMPLE':'EXTRAIT '+(i+1)}</span><span class="art-title">${esc(c.title)}</span><button class="clip-play" data-edit="${esc(c.id)}" aria-label="Lire l’extrait">▶</button><span class="clip-length">${Math.round(c.end-c.start)} s</span></div><div class="clip-body"><div class="clip-meta"><span>${time(c.start)} — ${time(c.end)}</span><span class="score">✦ ${c.score}/100</span></div><h3>${esc(c.title)}</h3><p>${esc(c.reason)}</p><button class="secondary" data-edit="${esc(c.id)}">Aperçu & ajustements ↗</button></div></article>`).join('');$$('[data-edit]').forEach(b=>b.onclick=()=>openEditor(b.dataset.edit));$$('.clip-check').forEach(b=>b.onchange=()=>{currentJob.clips.find(c=>c.id===b.dataset.id).selected=b.checked;if(!currentJob.demo)remember(currentJob);});hydrateThumbnails(currentJob);}
+
+const thumbnailCache = new Map();
+let thumbnailGeneration = 0;
+async function hydrateThumbnails(job) {
+    const generation = ++thumbnailGeneration;
+    if (!job || job.demo || !connected || (job.engine && job.engine !== config.url)) return;
+    let failed = false;
+    for (const clip of job.clips) {
+        if (generation !== thumbnailGeneration || currentJob?.id !== job.id) return;
+        const key = config.url + '/' + job.id + '/' + clip.id;
+        try {
+            let url = thumbnailCache.get(key);
+            if (!url) {
+                const response = await api('/api/thumbnails/' + job.id + '/' + encodeURIComponent(clip.id));
+                const blob = await response.blob();
+                if (!blob.type.startsWith('image/')) throw Error('Miniature invalide');
+                url = URL.createObjectURL(blob);
+                thumbnailCache.set(key, url);
+            }
+            if (generation !== thumbnailGeneration || currentJob?.id !== job.id) return;
+            const img = $$('.clip-thumbnail').find(el => el.dataset.thumbnail === String(clip.id));
+            if (img) { img.src = url; img.hidden = false; img.parentElement.classList.add('has-thumbnail'); }
+        } catch (e) { failed = true; }
+    }
+    if (failed && generation === thumbnailGeneration) toast('Certaines miniatures sont indisponibles. Vérifiez que le moteur est à jour ; les aperçus restent accessibles dans l’éditeur.');
+    while (thumbnailCache.size > 100) {
+        const oldest = thumbnailCache.keys().next().value;
+        URL.revokeObjectURL(thumbnailCache.get(oldest)); thumbnailCache.delete(oldest);
+    }
+}
+
 $('#sortClips').onchange=()=>currentJob&&renderClips();
 function srt(cues,start,end){const fmt=v=>{let n=Math.max(0,Math.round(v*1000));const h=Math.floor(n/3600000);n%=3600000;const m=Math.floor(n/60000);n%=60000;const s=Math.floor(n/1000);return [h,m,s].map(x=>String(x).padStart(2,'0')).join(':')+','+String(n%1000).padStart(3,'0');};let idx=0;return cues.filter(c=>c.end>start&&c.start<end).map(c=>`${++idx}\n${fmt(Math.max(c.start,start)-start)} --> ${fmt(Math.min(c.end,end)-start)}\n${c.text.replace(/[\r\n]/g,' ')}\n`).join('\n');}
 function saveBlob(blob,name){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),60000);}
