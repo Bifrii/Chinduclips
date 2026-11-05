@@ -54,7 +54,7 @@ try {
     $updateFiles = @('Dockerfile', 'requirements.txt', 'server.py')
     foreach ($name in $updateFiles) {
         $target = Join-Path $engine ($name + '.next')
-        Invoke-WebRequest -UseBasicParsing -Uri ("https://raw.githubusercontent.com/Bifrii/Chinduclips/175220cbbe15398ec7df2910acc45b3b1bd77330/engine/" + $name) -OutFile $target
+        Invoke-WebRequest -UseBasicParsing -Uri ("https://raw.githubusercontent.com/Bifrii/Chinduclips/46f3551f4bcd1204bbf7ad420b47d8b6cf195d76/engine/" + $name) -OutFile $target
     }
     foreach ($name in $updateFiles) {
         Move-Item -LiteralPath (Join-Path $engine ($name + '.next')) -Destination (Join-Path $engine $name) -Force
@@ -72,6 +72,11 @@ try {
         Write-Host 'Construction et lancement. Le premier demarrage peut prendre plusieurs minutes.'
         & $dockerPath compose -p chinduclips up -d --build
         if ($LASTEXITCODE -ne 0) { throw 'Docker ne peut pas demarrer le moteur. Consultez les messages ci-dessus.' }
+        # Repair existing model volumes created before the cache ownership fix.
+        & $dockerPath compose -p chinduclips exec -T --user root clips chown -R clip:clip /home/clip/.cache
+        if ($LASTEXITCODE -ne 0) { throw 'Impossible de corriger les droits du cache Whisper.' }
+        & $dockerPath compose -p chinduclips restart clips
+        if ($LASTEXITCODE -ne 0) { throw 'Impossible de redemarrer le moteur.' }
     } finally { Pop-Location }
     $keyLine = Get-Content -LiteralPath $envFile | Where-Object { $_ -match '^CLIP_API_KEY=' } | Select-Object -First 1
     if (-not $keyLine) { throw 'La cle CLIP_API_KEY est absente du fichier .env.' }
