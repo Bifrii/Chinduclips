@@ -1,5 +1,5 @@
 """Chindu Clips: single-owner video worker. Run behind HTTPS on a VPS."""
-import os, json, uuid, time, shutil, subprocess, threading, secrets
+import os, json, uuid, time, shutil, subprocess, threading, secrets, re, logging
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -18,7 +18,20 @@ MAX_BYTES=400*1024*1024
 def run(args,timeout=1800):
     p=subprocess.run(args,capture_output=True,text=True,timeout=timeout)
     if p.returncode:
-        raise RuntimeError('Le traitement média a échoué. Vérifiez le fichier et la disponibilité de la vidéo.')
+        detail = p.stderr or ''
+        logging.error('%s failed: %s', Path(args[0]).name, re.sub(r'https?://\S+', '[URL]', detail[-4000:]))
+        if Path(args[0]).name == 'yt-dlp':
+            lower = detail.lower()
+            if 'private video' in lower:
+                raise RuntimeError('YouTube indique que cette vidéo est privée. Importez un fichier auquel vous avez accès.')
+            if 'this video is not available' in lower or 'video unavailable' in lower or 'has been removed' in lower:
+                raise RuntimeError('YouTube indique que cette vidéo est indisponible. Vérifiez le lien exact ou importez votre fichier.')
+            if 'sign in' in lower or 'confirm you' in lower:
+                raise RuntimeError('YouTube demande une connexion ou une vérification et bloque la récupération. Importez votre fichier vidéo.')
+            if 'requested format is not available' in lower:
+                raise RuntimeError('Le format vidéo demandé est indisponible. Essayez une autre vidéo ou importez votre fichier.')
+            raise RuntimeError('Échec de récupération YouTube. Vérifiez le réseau et consultez les journaux Docker pour le détail.')
+        raise RuntimeError('Le traitement FFmpeg a échoué. Vérifiez le fichier vidéo ; le détail est dans les journaux Docker.')
     return p.stdout
 
 def read_job(jid):
@@ -37,7 +50,7 @@ def process(jid):
         source=folder/'source.mp4'
         if j.get('url'):
             # Only YouTube, no arbitrary URL fetch, redirects or playlists. Proxy-free execution.
-            run(['yt-dlp','--ignore-config','--no-playlist','--max-filesize','400M','--match-filter','duration <= 3600','--socket-timeout','30','--retries','2','--format','bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]','--merge-output-format','mp4','--output',str(source),'--',j['url']])
+            run(['yt-dlp','--js-runtimes','node','--ignore-config','--no-playlist','--max-filesize','400M','--match-filter','duration <= 3600','--socket-timeout','30','--retries','2','--format','bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]','--merge-output-format','mp4','--output',str(source),'--',j['url']])
         if not source.exists():raise RuntimeError('Vidéo indisponible, privée, trop longue ou supérieure à 400 Mo. Importez votre fichier si YouTube bloque le téléchargement.')
         probe=json.loads(run(['ffprobe','-v','quiet','-show_format','-show_streams','-of','json',str(source)],120))
         duration=float(probe['format']['duration'])
