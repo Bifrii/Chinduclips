@@ -2,7 +2,7 @@
 setlocal
 title Chindu Clips - Installation du moteur
 set "CHINDU_INSTALLER=%~f0"
-powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop'; $raw=Get-Content -LiteralPath $env:CHINDU_INSTALLER -Raw; & ([scriptblock]::Create(($raw -split '# POWERSHELL_START',2)[1]))"
+powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop'; $raw=Get-Content -LiteralPath $env:CHINDU_INSTALLER -Raw; & ([scriptblock]::Create(($raw -split '(?m)^# POWERSHELL_START\r?$',2)[1]))"
 if errorlevel 1 (
   echo.
   echo Installation non terminee. Consultez le message ci-dessus.
