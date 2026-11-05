@@ -1,0 +1,6 @@
+.env
+engine/data/
+__pycache__/
+*.pyc
+.vercel/
+.openai/
