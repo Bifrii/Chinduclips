@@ -51,10 +51,10 @@ try {
     }
     # Update engine code only. Preserve .env, video/model volumes and web assets.
     Write-Host 'Mise a jour du moteur YouTube...'
-    $updateFiles = @('Dockerfile', 'requirements.txt', 'server.py')
+    $updateFiles = @('Dockerfile', 'requirements.txt', 'server.py', 'web/app.js', 'web/style.css')
     foreach ($name in $updateFiles) {
         $target = Join-Path $engine ($name + '.next')
-        Invoke-WebRequest -UseBasicParsing -Uri ("https://raw.githubusercontent.com/Bifrii/Chinduclips/46f3551f4bcd1204bbf7ad420b47d8b6cf195d76/engine/" + $name) -OutFile $target
+        Invoke-WebRequest -UseBasicParsing -Uri ("https://raw.githubusercontent.com/Bifrii/Chinduclips/01d9ececbaa02054a35ce49e34b8dce286c9759e/engine/" + $name) -OutFile $target
     }
     foreach ($name in $updateFiles) {
         Move-Item -LiteralPath (Join-Path $engine ($name + '.next')) -Destination (Join-Path $engine $name) -Force
